@@ -1,28 +1,32 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { JSONPreset } from 'lowdb/node'
 import { IMetricsSchema } from '../utils/typings';
-import path from 'path';
+import * as path from 'path';
 import { ApiResponse, IGenericResponse } from '../utils/apiResponse';
 import { MetricsDTO } from './metrics.dto';
+import * as fs from 'fs';
 
 @Injectable()
 export class MetricsService {
     private db;
-    
-    constructor() {
-        
-       let defaultData: {metrics: IMetricsSchema[]};
-       defaultData.metrics = [] as IMetricsSchema[]
-        (async () => {
-            this.db = await JSONPreset(path.join(__dirname,"..","..",'db.json'), defaultData)
-        })()
-       
-        this.db.defaults({ metrics: [] }).write();
-      }
+    private dbFile = path.join(__dirname,"..","..","db",'db.json');
 
-      async createMetrics(dto: MetricsDTO): Promise<IGenericResponse<IMetricsSchema>>{
+    constructor() {}
+
+      async createMetrics(dto: MetricsDTO): Promise<IGenericResponse<MetricsDTO>>{
         try{
-            await this.db.get("metrics").push(dto).write();
+
+            const dbDataString = await fs.readFileSync(this.dbFile, "utf-8")
+            if(!dbDataString){
+                await fs.writeFileSync(this.dbFile, JSON.stringify(([dto])))
+                return ApiResponse.success("data stored", HttpStatus.CREATED, dto)
+            }
+
+            const dbData = JSON.parse(dbDataString);
+            if(dbData.find((d) => d.campaignName === dto.campaignName)){
+                return ApiResponse.fail("Campaign already exists", HttpStatus.BAD_REQUEST)
+            }
+            dbData.push(dto);
+            await fs.writeFileSync(this.dbFile, JSON.stringify(dbData));
             return ApiResponse.success("metrics stored", HttpStatus.OK, dto as any)
         }catch(error){
             return ApiResponse.fail(error.message, HttpStatus.INTERNAL_SERVER_ERROR, error)
@@ -30,10 +34,15 @@ export class MetricsService {
       }
 
 
-      async getMetrics(query = null): Promise<IGenericResponse<IMetricsSchema[]>>{
+      async getMetrics(query = null): Promise<IGenericResponse<MetricsDTO[]>>{
         try{
-            let metrics = await this.db.get("metrics").value();
+            const dbDataString = await fs.readFileSync(this.dbFile, "utf-8")
+            if(!dbDataString){
+                return ApiResponse.fail("no data found", HttpStatus.NOT_FOUND)
+            }
 
+            let metrics = JSON.parse(dbDataString);
+            
             metrics = Object.keys(query).length > 0 ? metrics.filter((m) => m.campaignName === query.campaignName) : metrics;
             return ApiResponse.success("metrics stored", HttpStatus.OK, metrics)
         }catch(error){
